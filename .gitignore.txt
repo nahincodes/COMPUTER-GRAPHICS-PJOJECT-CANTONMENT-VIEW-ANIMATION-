@@ -1,0 +1,76 @@
+# Build artifacts
+*.o
+*.obj
+*.lo
+*.la
+*.al
+*.libs
+*.dll
+*.so
+*.so.*
+*.dylib
+*.exe
+*.out
+*.app
+*.i
+*.ii
+*.s
+*.swp
+
+# Visual Studio (Windows)
+*.vcxproj*
+*.sln
+*.user
+*.opensdf
+*.sdf
+*.cache
+*.pdb
+*.idb
+*.ipch
+*.log
+*.tlog
+*.db
+*.lastbuildstate
+*.vscode/
+Debug/
+Release/
+x64/
+x86/
+
+# Code::Blocks
+*.layout
+*.depend
+*.cbp
+*.autosave
+
+# CMake
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+
+# macOS
+.DS_Store
+
+# Linux
+*.d
+*.run
+*.gch
+
+# FreeGLUT binaries (if manually added)
+freeglut.dll
+freeglut.lib
+freeglut.so
+freeglut.a
+
+# Misc
+*.bak
+*.tmp
+*.log
+*.old
+*.orig
+
+# Generated folders
+bin/
+build/
+obj/
