@@ -1,0 +1,28 @@
+# Build files
+*.o
+*.exe
+*.obj
+*.dll
+*.so
+*.a
+*.lib
+*.pdb
+
+# IDE-specific
+*.layout
+*.depend
+*.cbp
+*.sln
+*.vcxproj*
+*.user
+
+# CMake
+CMakeFiles/
+CMakeCache.txt
+Makefile
+
+# Output folders
+bin/
+build/
+Debug/
+Release/
