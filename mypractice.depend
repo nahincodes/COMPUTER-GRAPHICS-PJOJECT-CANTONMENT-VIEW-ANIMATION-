@@ -879,3 +879,13 @@
 1526093416 c:\program files\codeblocks\mingw\x86_64-w64-mingw32\include\math.h
 	<crtdefs.h>
 
+1758526148 source:d:\computer graphics project\mypractice - copy\main.cpp
+	<cmath>
+	<GL/glut.h>
+	<math.h>
+	<cmath>
+	<windows.h>
+	<mmsystem.h>
+	<string>
+	<cstdio>
+

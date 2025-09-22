@@ -1,41 +1,66 @@
 #include <cmath>
 #include <GL/glut.h>
-
 #include <math.h>
 
-#if defined(_WIN32) || defined(WIN32) || defined(__WIN32__)
+#include <cmath>   // you already have this, keep it
+
+#if defined(_WIN32) || defined(WIN32) || defined(__WIN32__) || defined(__MINGW32__) || defined(__MINGW64__)
   #include <windows.h>
   #include <mmsystem.h>
-  // MSVC হলে নিচের লাইনটা লিংকারকে winmm.lib অ্যাড করতে বলে; MinGW-তে -lwinmm দিয়েই হবে
+  // MSVC only uses this pragma; MinGW uses -lwinmm (already added above)
   #ifdef _MSC_VER
     #pragma comment(lib, "winmm.lib")
   #endif
 #endif
-#if defined(_WIN32) || defined(WIN32) || defined(__WIN32__)
+
+
+
+#if defined(_WIN32) || defined(WIN32) || defined(__WIN32__) || defined(__MINGW32__) || defined(__MINGW64__)
+#include <string>
+#include <cstdio>
+
+static std::wstring getExeDirW() {
+    wchar_t buf[MAX_PATH];
+    DWORD n = GetModuleFileNameW(NULL, buf, MAX_PATH);
+    while (n > 0 && buf[n-1] != L'\\' && buf[n-1] != L'/') --n;
+    return std::wstring(buf, buf + n); // trailing slash kept
+}
+
+// Looping tank SFX: starts when moving==true, stops when moving==false
 static void ensureTankSfxPlaying(bool moving) {
     static bool isPlaying = false;
+    static bool pathBuilt = false;
+    static std::wstring wavPath;  // e.g., ...\bin\Debug\tank_move.wav
+
+    if (!pathBuilt) {
+        wavPath = getExeDirW() + L"tank_move.wav";
+        std::fwprintf(stderr, L"[SFX] Looking for: %ls\n", wavPath.c_str());
+        pathBuilt = true;
+    }
 
     if (moving) {
         if (!isPlaying) {
-            // রানটাইম ওয়ার্কিং ডিরেক্টরিতে (bin\Debug) tank_move.wav খুঁজবে
-            BOOL ok = PlaySound(TEXT("tank_move.wav"), NULL,
-                                SND_ASYNC | SND_LOOP | SND_FILENAME | SND_NODEFAULT);
-            if (ok) {
+            BOOL ok = PlaySoundW(wavPath.c_str(), NULL,
+                                 SND_ASYNC | SND_LOOP | SND_FILENAME | SND_NODEFAULT);
+            if (!ok) {
+                std::fwprintf(stderr, L"[SFX] PlaySoundW failed. File missing or not a WAV/PCM?\n");
+            } else {
+                std::fprintf(stderr, "[SFX] Tank loop started.\n");
                 isPlaying = true;
             }
         }
     } else {
         if (isPlaying) {
-            PlaySound(NULL, 0, 0);  // সাউন্ড থামাও
+            PlaySoundW(NULL, 0, 0);  // stop
+            std::fprintf(stderr, "[SFX] Tank loop stopped.\n");
             isPlaying = false;
         }
     }
 }
 #else
-static void ensureTankSfxPlaying(bool) {} // non-Windows: no-op
+// Non-Windows: do nothing
+static void ensureTankSfxPlaying(bool) {}
 #endif
-
-
 
 
 
@@ -156,9 +181,6 @@ static const int BTN_Y = HEIGHT - 60; // 20px margin from top edge
 
 
 
-
-
-// All helpers below use ONLY glVertex2f.
 //helper for playground
 /*static inline*/ void circleOutline2f(float cx, float cy, float r, int seg=64) {
     glBegin(GL_LINE_LOOP);
@@ -181,406 +203,75 @@ static inline void arcOutline2f(float cx, float cy, float r,
 
 
 
-/*
-
-// ===== The tank (place on your road) =======================================
-// x,y = bottom-left of track band; scale = overall size; angleDeg = rotation
-void drawTankDetailed(float x, float y, float scale=1.0f, float angleDeg=0.0f) {
-    glPushMatrix();
-    glTranslatef(x, y, 0);
-    glScalef(scale, scale, 1);
-    glRotatef(angleDeg, 0, 0, 1);
-
-    // --- Proportions (all in local tank space) ---
-    const float trackH      = 120.f;      // total track band height
-    const float trackPadH   = 12.f;
-    const float trackRad    = 58.f;       // corner radius equals big wheel
-    const float wheelY      = 60.f + 30.f; // wheel centers (above bottom)
-    const int   wheelCount  = 6;
-    const float wheelSpace  = 108.f;
-    const float wheelStartX = 120.f;      // first wheel center X
-    const float bandLeft    = 60.f;
-    const float bandRight   = wheelStartX + (wheelCount-1)*wheelSpace + 120.f;
-    const float bandBottom  = 20.f;
-    const float bandTop     = bandBottom + trackH;
-
-    // ===================== BACK LAYER: TRACKS ===============================
-    glColor3f(0.12f, 0.13f, 0.13f);  // dark track band
-    roundedBand(bandLeft, bandBottom, bandRight, bandTop, trackRad);
-
-    // Track pads (bottom run)
-    glColor3f(0.18f, 0.19f, 0.19f);
-    for (float px = bandLeft + 8; px < bandRight-8; px += 28) {
-        glBegin(GL_QUADS);
-            glVertex2f(px, bandBottom + 4);
-            glVertex2f(px + 18, bandBottom + 4);
-            glVertex2f(px + 18, bandBottom + 4 + trackPadH);
-            glVertex2f(px,      bandBottom + 4 + trackPadH);
-        glEnd();
-    }
-
-    // ===================== WHEELS (on top of tracks) ========================
-    for (int i=0; i<wheelCount; ++i) {
-        float cx = wheelStartX + i*wheelSpace;
-        float cy = bandBottom + wheelY;
-        wheelDetailed(cx, cy, 56.f, 43.f, 18.f, 8);
-    }
-
-    // Drive sprocket (rear) – suggest teeth with small triangles
-    {
-        float cx = bandRight - 60.f, cy = bandBottom + wheelY + 4.f;
-        glColor3f(0.12f, 0.16f, 0.12f); ring(cx, cy, 38.f, 56.f, 32);
-        glColor3f(0.28f, 0.38f, 0.26f); ring(cx, cy, 20.f, 35.f, 32);
-        glColor3f(0.09f, 0.10f, 0.10f);
-        int teeth = 12;
-        glBegin(GL_TRIANGLES);
-        for (int i=0;i<teeth;++i){
-            float t = 2.0f*3.1415926f*(i+0.5f)/teeth;
-            float ct = cosf(t), st = sinf(t);
-            glVertex2f(cx + 56.f*ct, cy + 56.f*st);
-            glVertex2f(cx + 63.f*ct, cy + 63.f*st);
-            float t2 = 2.0f*3.1415926f*(i+1.0f)/teeth;
-            glVertex2f(cx + 56.f*cosf(t2), cy + 56.f*sinf(t2));
-        }
-        glEnd();
-    }
-
-    // Idler (front)
-    {
-        float cx = bandLeft + 60.f, cy = bandBottom + wheelY + 2.f;
-        glColor3f(0.12f, 0.16f, 0.12f); ring(cx, cy, 36.f, 54.f, 32);
-        glColor3f(0.28f, 0.38f, 0.26f); ring(cx, cy, 18.f, 33.f, 32);
-    }
-
-    // ===================== SIDE SKIRTS (armor) ==============================
-    glColor3f(0.35f, 0.55f, 0.35f);
-    glBegin(GL_POLYGON); // long skirt with front/back chamfers
-        glVertex2f(bandLeft-10.f, bandTop-8.f);
-        glVertex2f(bandRight+10.f, bandTop-8.f);
-        glVertex2f(bandRight+60.f, bandTop-38.f);
-        glVertex2f(bandRight-40.f, bandTop-58.f);
-        glVertex2f(bandLeft+10.f, bandTop-56.f);
-        glVertex2f(bandLeft-40.f, bandTop-30.f);
-    glEnd();
-
-    // Panel cuts on skirt
-    glLineWidth(2);
-    glColor3f(0.22f, 0.33f, 0.20f);
-    for (int s=1; s<=2; ++s){
-        float xCut = bandLeft + s*(bandRight-bandLeft)/3.f;
-        glBegin(GL_LINES); glVertex2f(xCut, bandTop-8.f); glVertex2f(xCut, bandTop-56.f); glEnd();
-    }
-
-    // ===================== HULL =================================================
-    // Lower hull / fenders
-    glColor3f(0.32f, 0.52f, 0.32f);
-    glBegin(GL_QUADS);
-        glVertex2f(bandLeft-20.f, bandTop-50.f);
-        glVertex2f(bandRight+50.f, bandTop-50.f);
-        glVertex2f(bandRight+90.f, bandTop+10.f);
-        glVertex2f(bandLeft+20.f,  bandTop+10.f);
-    glEnd();
-
-    // Upper glacis (front slope)
-    glColor3f(0.39f, 0.60f, 0.38f);
-    glBegin(GL_TRIANGLES);
-        glVertex2f(bandLeft+40.f,  bandTop+10.f);
-        glVertex2f(bandLeft+240.f, bandTop+95.f);
-        glVertex2f(bandLeft+400.f, bandTop+10.f);
-    glEnd();
-
-    // Hull deck (top slab)
-    glColor3f(0.37f, 0.58f, 0.37f);
-    glBegin(GL_QUADS);
-        glVertex2f(bandLeft+180.f, bandTop+70.f);
-        glVertex2f(bandRight-60.f, bandTop+70.f);
-        glVertex2f(bandRight+70.f, bandTop+20.f);
-        glVertex2f(bandLeft+120.f, bandTop+20.f);
-    glEnd();
-
-    // ===================== TURRET =================================================
-    // Turret body (angular polygon)
-    glColor3f(0.33f, 0.54f, 0.33f);
-    glBegin(GL_POLYGON);
-        glVertex2f(bandLeft+340.f, bandTop+80.f);
-        glVertex2f(bandRight-110.f, bandTop+90.f);
-        glVertex2f(bandRight-40.f,  bandTop+65.f);
-        glVertex2f(bandRight-130.f, bandTop+30.f);
-        glVertex2f(bandLeft+360.f, bandTop+30.f);
-        glVertex2f(bandLeft+310.f, bandTop+55.f);
-    glEnd();
-
-    // Turret ring
-    glColor3f(0.25f, 0.40f, 0.25f);
-    ring(bandLeft+345.f, bandTop+40.f, 20.f, 34.f, 36);
-
-    // Optics & small boxes
-    glColor3f(0.25f, 0.40f, 0.25f);
-    glBegin(GL_QUADS); // left sight box
-        glVertex2f(bandLeft+320.f, bandTop+68.f);
-        glVertex2f(bandLeft+360.f, bandTop+68.f);
-        glVertex2f(bandLeft+360.f, bandTop+88.f);
-        glVertex2f(bandLeft+320.f, bandTop+88.f);
-    glEnd();
-    glColor3f(0.15f, 0.20f, 0.15f); // glass slit
-    glBegin(GL_QUADS);
-        glVertex2f(bandLeft+326.f, bandTop+78.f);
-        glVertex2f(bandLeft+354.f, bandTop+78.f);
-        glVertex2f(bandLeft+354.f, bandTop+83.f);
-        glVertex2f(bandLeft+326.f, bandTop+83.f);
-    glEnd();
-
-    // Smoke launchers (two banks)
-    glColor3f(0.30f, 0.45f, 0.30f);
-    for (int k=0; k<3; ++k) {
-        float bx = bandLeft+520.f + k*28.f, by = bandTop+60.f;
-        glBegin(GL_QUADS);
-            glVertex2f(bx,   by);
-            glVertex2f(bx+16,by);
-            glVertex2f(bx+14,by-18);
-            glVertex2f(bx-2, by-18);
-        glEnd();
-        disk(bx+7.f, by-6.f, 5.f, 18);
-    }
-    for (int k=0; k<3; ++k) {
-        float bx = bandLeft+520.f + k*28.f, by = bandTop+32.f;
-        glBegin(GL_QUADS);
-            glVertex2f(bx,   by);
-            glVertex2f(bx+16,by);
-            glVertex2f(bx+14,by-18);
-            glVertex2f(bx-2, by-18);
-        glEnd();
-        disk(bx+7.f, by-6.f, 5.f, 18);
-    }
-
-    // Cupola
-    glColor3f(0.36f, 0.56f, 0.36f);
-    disk(bandLeft+410.f, bandTop+96.f, 20.f, 24);
-    glColor3f(0.22f, 0.33f, 0.22f);
-    ring(bandLeft+410.f, bandTop+96.f, 12.f, 20.f, 24);
-
-    // MG mount & barrel
-    glColor3f(0.18f, 0.22f, 0.18f);
-    glBegin(GL_QUADS); // mount
-        glVertex2f(bandLeft+402.f, bandTop+102.f);
-        glVertex2f(bandLeft+438.f, bandTop+102.f);
-        glVertex2f(bandLeft+438.f, bandTop+110.f);
-        glVertex2f(bandLeft+402.f, bandTop+110.f);
-    glEnd();
-    glBegin(GL_QUADS); // barrel
-        glVertex2f(bandLeft+438.f, bandTop+106.f);
-        glVertex2f(bandLeft+520.f, bandTop+106.f);
-        glVertex2f(bandLeft+520.f, bandTop+108.f);
-        glVertex2f(bandLeft+438.f, bandTop+108.f);
-    glEnd();
-
-    // Antennas
-    glLineWidth(2);
-    glBegin(GL_LINES);
-        glVertex2f(bandLeft+460.f, bandTop+80.f);
-        glVertex2f(bandLeft+460.f, bandTop+190.f);
-    glEnd();
-    glBegin(GL_LINES);
-        glVertex2f(bandRight-150.f, bandTop+70.f);
-        glVertex2f(bandRight-140.f, bandTop+190.f);
-    glEnd();
-
-    // ===================== GUN ====================================================
-    // Main barrel (slight taper)
-    float gunY = bandTop + 55.f;
-    float gunX0 = bandRight - 110.f;
-    float gunX1 = gunX0 + 340.f;
-
-    // rear darker sleeve
-    glColor3f(0.22f, 0.35f, 0.22f);
-    glBegin(GL_QUADS);
-        glVertex2f(gunX0-10.f, gunY-6.f);
-        glVertex2f(gunX0,      gunY-6.f);
-        glVertex2f(gunX0,      gunY+6.f);
-        glVertex2f(gunX0-10.f, gunY+6.f);
-    glEnd();
-
-    // long barrel
-    glColor3f(0.32f, 0.50f, 0.32f);
-    glBegin(GL_QUADS);
-        glVertex2f(gunX0, gunY-6.f);       // near
-        glVertex2f(gunX1, gunY-4.f);       // far (taper)
-        glVertex2f(gunX1, gunY+4.f);
-        glVertex2f(gunX0, gunY+6.f);
-    glEnd();
-
-    // fume extractor
-    glColor3f(0.28f, 0.44f, 0.28f);
-    glBegin(GL_QUADS);
-        glVertex2f(gunX0+140.f, gunY-10.f);
-        glVertex2f(gunX0+200.f, gunY-10.f);
-        glVertex2f(gunX0+200.f, gunY+10.f);
-        glVertex2f(gunX0+140.f, gunY+10.f);
-    glEnd();
-
-    // muzzle tip
-    glColor3f(0.10f, 0.12f, 0.12f);
-    glBegin(GL_QUADS);
-        glVertex2f(gunX1,   gunY-6.f);
-        glVertex2f(gunX1+20.f, gunY-6.f);
-        glVertex2f(gunX1+20.f, gunY+6.f);
-        glVertex2f(gunX1,   gunY+6.f);
-    glEnd();
-
-    // ===================== LINE ACCENTS ==========================================
-    glLineWidth(2);
-    glColor3f(0.20f, 0.30f, 0.20f);
-    // a few seams on turret
-    glBegin(GL_LINES);
-        glVertex2f(bandLeft+360.f, bandTop+60.f); glVertex2f(bandRight-110.f, bandTop+60.f);
-        glVertex2f(bandLeft+380.f, bandTop+80.f); glVertex2f(bandLeft+520.f,  bandTop+80.f);
-    glEnd();
-
-    glPopMatrix();
-}
-*/
-
-
-
-
-// ---------- Sky (single bluish band) ----------
-/*void drawSkySolid() {
-    glBegin(GL_QUADS);
-     glColor3f(0.4f, 0.7f, 1.0f);    // bluish sky
-        glVertex2i(0, HEIGHT);         // top-left
-        glVertex2i(WIDTH, HEIGHT);     // top-right
-        glVertex2i(WIDTH, GROUND_TOP); // bottom-right (meets ground)
-        glVertex2i(0, GROUND_TOP);     // bottom-left
-    glEnd();
-}
-*/
-/*
-void drawSkySolid() {
-    glBegin(GL_QUADS);
-        if (gNightMode)
-            glColor3f(0.05f, 0.08f, 0.15f);   // dark navy at night
-        else
-            glColor3f(0.4f, 0.7f, 1.0f);      // daytime blue
-        glVertex2i(0, HEIGHT);
-        glVertex2i(WIDTH, HEIGHT);
-        glVertex2i(WIDTH, GROUND_TOP);
-        glVertex2i(0, GROUND_TOP);
-    glEnd();
-}
-
-
-*/
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 // ===== The tank (place on your road) =======================================
 // x,y = bottom-left of track band; scale = overall size; angleDeg = rotation
 void drawTankDetailed(float x, float y, float scale=1.0f, float angleDeg=0.0f) {
     glPushMatrix();
 
     // --- Self-contained animation state (no globals) -----------------------
-    // Drive from far left to right edge, then loop.
-    static int  t0ms    = -1;                // start time
+    static int  t0ms    = -1;
     if (t0ms < 0) t0ms = glutGet(GLUT_ELAPSED_TIME);
     float t = (glutGet(GLUT_ELAPSED_TIME) - t0ms) * 0.001f; // seconds
 
-    const float speedPxPerSec = 140.0f;      // horizontal speed
-    const float startLeft     = -900.0f;     // off-screen left
-    const float rightReset    = WIDTH + 120.0f;    // a bit past the right edge
+    const float speedPxPerSec = 140.0f;
+    const float startLeft     = -900.0f;
+    const float rightReset    = WIDTH + 120.0f;
     const float span          = rightReset - startLeft;
     float worldX = startLeft + fmodf(t * speedPxPerSec, span);
 
-    // NOTE: we keep your 'y' exactly; 'x' becomes the base for our motion.
     static bool  initBase = false;
     static float baseX = 0.0f;
     if (!initBase) { baseX = x; initBase = true; }
 
-    // Also animate tread pads
     const float treadStep   = 28.f;
-    const float treadSpeed  = 80.f;          // pad scroll speed
+    const float treadSpeed  = 80.f;
     float padOffset = fmodf(t * treadSpeed, treadStep);
 
-    // ------------------ SFX hook (ADDED) ---------------------------
-    // ট্যাঙ্ক আসলে কি "চলছে"? যদি স্পিড > 0 হয়, সাউন্ড চালাও; না হলে থামাও।
-    // (speedPxPerSec এখন const, তাই আপনি স্পিড শূন্য করলে রিবিল্ডে সাউন্ড বন্ধ হবে।
-    //  চাইলে ভবিষ্যতে এটাকে ভ্যারিয়েবল করে রানটাইমে অন/অফও করতে পারবেন।)
-    #if defined(_WIN32) || defined(WIN32) || defined(__WIN32__)
-        bool moving = fabsf(speedPxPerSec) > 1e-3f;
-        ensureTankSfxPlaying(moving);   // SFX: start/stop looping WAV (ADDED)
-    #endif
-    // ---------------------------------------------------------------
+#if defined(_WIN32) || defined(WIN32) || defined(__WIN32__) || defined(__MINGW32__) || defined(__MINGW64__)
+    bool moving = std::fabs(speedPxPerSec) > 1e-3f;
+    ensureTankSfxPlaying(moving);
+#endif
 
-    // ------------------ Your original transforms ---------------------------
-    glTranslatef(x, y, 0);                   // keep your semantics
-    glTranslatef(worldX - baseX, 0, 0);      // add our horizontal motion
+    // ------------------  transforms ---------------------------
+    glTranslatef(x, y, 0);
+    glTranslatef(worldX - baseX, 0, 0);
     glScalef(scale, scale, 1);
     glRotatef(angleDeg, 0, 0, 1);
 
     // --- Proportions (all in local tank space) ---
-    const float trackH      = 120.f;      // total track band height
+    const float trackH      = 120.f;
     const float trackPadH   = 12.f;
-    const float trackRad    = 58.f;       // corner radius equals big wheel
-    const float wheelY      = 60.f + 30.f; // wheel centers (above bottom)
+    const float trackRad    = 58.f;
+    const float wheelY      = 60.f + 30.f; // 90
     const int   wheelCount  = 6;
     const float wheelSpace  = 108.f;
-    const float wheelStartX = 120.f;      // first wheel center X
+    const float wheelStartX = 120.f;
     const float bandLeft    = 60.f;
-    const float bandRight   = wheelStartX + (wheelCount-1)*wheelSpace + 120.f;
+    const float bandRight   = 780.f;       // 120 + (6-1)*108 + 120
     const float bandBottom  = 20.f;
-    const float bandTop     = bandBottom + trackH;
+    const float bandTop     = 140.f;       // 20 + 120
 
     // ===================== BACK LAYER: TRACKS ===============================
     glColor3f(0.12f, 0.13f, 0.13f);  // dark track band
     roundedBand(bandLeft, bandBottom, bandRight, bandTop, trackRad);
 
     // Track pads (animated bottom + subtle top echo)
-    glColor3f(0.18f, 0.19f, 0.19f);
+   glColor3f(0.18f, 0.19f, 0.19f);
+   //glColor3f(1.0f,0.0f,0.0f);
     for (float px = bandLeft + 8.f - padOffset; px < bandRight-8.f; px += treadStep) {
         // bottom run
         glBegin(GL_QUADS);
-            glVertex2f(px,          bandBottom + 4);
-            glVertex2f(px + 18.f,   bandBottom + 4);
-            glVertex2f(px + 18.f,   bandBottom + 4 + trackPadH);
-            glVertex2f(px,          bandBottom + 4 + trackPadH);
+            glVertex2f(px,          bandBottom + 4);               // px, 24
+            glVertex2f(px + 18.f,   bandBottom + 4);               // px+18, 24
+            glVertex2f(px + 18.f,   bandBottom + 4 + trackPadH);   // px+18, 36
+            glVertex2f(px,          bandBottom + 4 + trackPadH);   // px,    36
         glEnd();
         // top run (thin echo helps sell motion)
         glBegin(GL_QUADS);
-            glVertex2f(px,          bandTop - 6 - trackPadH*0.6f);
-            glVertex2f(px + 18.f,   bandTop - 6 - trackPadH*0.6f);
-            glVertex2f(px + 18.f,   bandTop - 6);
-            glVertex2f(px,          bandTop - 6);
+            glVertex2f(px,          bandTop - 6 - trackPadH*0.6f); // px,    127.8
+            glVertex2f(px + 18.f,   bandTop - 6 - trackPadH*0.6f); // px+18, 127.8
+            glVertex2f(px + 18.f,   bandTop - 6);                  // px+18, 134
+            glVertex2f(px,          bandTop - 6);                  // px,    134
         glEnd();
     }
 
@@ -591,215 +282,276 @@ void drawTankDetailed(float x, float y, float scale=1.0f, float angleDeg=0.0f) {
         wheelDetailed(cx, cy, 56.f, 43.f, 18.f, 8);
     }
 
-    // Drive sprocket (rear) – suggest teeth with small triangles
-    {
-        float cx = bandRight - 60.f, cy = bandBottom + wheelY + 4.f;
-        glColor3f(0.12f, 0.16f, 0.12f); ring(cx, cy, 38.f, 56.f, 32);
-        glColor3f(0.28f, 0.38f, 0.26f); ring(cx, cy, 20.f, 35.f, 32);
-        glColor3f(0.09f, 0.10f, 0.10f);
-        int teeth = 12;
-        glBegin(GL_TRIANGLES);
-        for (int i=0;i<teeth;++i){
-            float t2pi = 6.2831853f;
-            float t  = t2pi*(i+0.5f)/teeth;
-            float t2 = t2pi*(i+1.0f)/teeth;
-            float ct = cosf(t),  st = sinf(t);
-            glVertex2f(cx + 56.f*ct,       cy + 56.f*st);
-            glVertex2f(cx + 63.f*ct,       cy + 63.f*st);
-            glVertex2f(cx + 56.f*cosf(t2), cy + 56.f*sinf(t2));
-        }
-        glEnd();
-    }
+// Drive sprocket(shamne)
+glColor3f(0.12f, 0.16f, 0.12f); ring(720.0f, 114.0f, 38.0f, 56.0f, 32);
+glColor3f(0.28f, 0.38f, 0.26f); ring(720.0f, 114.0f, 20.0f, 35.0f, 32);
 
-    // Idler (front)
-    {
-        float cx = bandLeft + 60.f, cy = bandBottom + wheelY + 2.f;
-        glColor3f(0.12f, 0.16f, 0.12f); ring(cx, cy, 36.f, 54.f, 32);
-        glColor3f(0.28f, 0.38f, 0.26f); ring(cx, cy, 18.f, 33.f, 32);
-    }
+// Idler(rcircle)
+glColor3f(0.12f, 0.16f, 0.12f);
+ring(120.0f, 112.0f, 36.0f, 54.0f, 32);
+glColor3f(0.28f, 0.38f, 0.26f);
+ring(120.0f, 112.0f, 18.0f, 33.0f, 32);
 
     // ===================== SIDE SKIRTS (armor) ==============================
     glColor3f(0.35f, 0.55f, 0.35f);
+   //glColor3f(1.0f, 0.0f, 0.0f);
     glBegin(GL_POLYGON); // long skirt with front/back chamfers
-        glVertex2f(bandLeft-10.f, bandTop-8.f);
-        glVertex2f(bandRight+10.f, bandTop-8.f);
-        glVertex2f(bandRight+60.f, bandTop-38.f);
-        glVertex2f(bandRight-40.f, bandTop-58.f);
-        glVertex2f(bandLeft+10.f, bandTop-56.f);
-        glVertex2f(bandLeft-40.f, bandTop-30.f);
+        glVertex2f(50.0f, 132.0f);
+        glVertex2f(790.0f, 132.0f);
+        glVertex2f(840.0f, 102.0f);
+        glVertex2f(740.0f, 82.0f);
+        glVertex2f(70.0f, 84.0f);
+        glVertex2f(20.0f, 110.0f);
     glEnd();
 
     // Panel cuts on skirt
-    glLineWidth(2);
-    glColor3f(0.22f, 0.33f, 0.20f);
-    for (int s=1; s<=2; ++s){
-        float xCut = bandLeft + s*(bandRight-bandLeft)/3.f;
-        glBegin(GL_LINES); glVertex2f(xCut, bandTop-8.f); glVertex2f(xCut, bandTop-56.f); glEnd();
-    }
+glLineWidth(2);
+glColor3f(0.22f, 0.33f, 0.20f);
+//glColor3f(1.0f, 0.0f, 0.0f);
+glBegin(GL_LINES);
+glVertex2f(300.0f, 132.0f);
+glVertex2f(300.0f, 84.0f);
+ glEnd();
+glBegin(GL_LINES);
+ glVertex2f(540.0f, 132.0f);
+ glVertex2f(540.0f, 84.0f);
+  glEnd();
+
 
     // ===================== HULL =================================================
     // Lower hull / fenders
     glColor3f(0.32f, 0.52f, 0.32f);
+     //glColor3f(1.0f,0.0f,0.0f);
     glBegin(GL_QUADS);
-        glVertex2f(bandLeft-20.f, bandTop-50.f);
-        glVertex2f(bandRight+50.f, bandTop-50.f);
-        glVertex2f(bandRight+90.f, bandTop+10.f);
-        glVertex2f(bandLeft+20.f,  bandTop+10.f);
+        glVertex2f(20.0f, 90.0f);
+        glVertex2f(830.0f, 90.0f);
+        glVertex2f(870.0f, 150.0f);
+        glVertex2f(60.0f, 150.0f);
     glEnd();
 
-    // Upper glacis (front slope)
+    // Upper glacis (front slope)(trivuj)
     glColor3f(0.39f, 0.60f, 0.38f);
+    //glColor3f(1.0f,0.0f,0.0f);
     glBegin(GL_TRIANGLES);
-        glVertex2f(bandLeft+40.f,  bandTop+10.f);
-        glVertex2f(bandLeft+240.f, bandTop+95.f);
-        glVertex2f(bandLeft+400.f, bandTop+10.f);
+        glVertex2f(80.0f, 150.0f);
+        glVertex2f(300.0f, 235.0f);
+        glVertex2f(460.0f, 150.0f);
     glEnd();
 
     // Hull deck (top slab)
-    glColor3f(0.37f, 0.58f, 0.37f);
+   glColor3f(0.37f, 0.58f, 0.37f);
+   // glColor3f(1.0f,0.0f,0.0f);
     glBegin(GL_QUADS);
-        glVertex2f(bandLeft+180.f, bandTop+70.f);
-        glVertex2f(bandRight-60.f, bandTop+70.f);
-        glVertex2f(bandRight+70.f, bandTop+20.f);
-        glVertex2f(bandLeft+120.f, bandTop+20.f);
+        glVertex2f(240.0f, 210.0f);
+        glVertex2f(720.0f, 210.0f);
+        glVertex2f(865.0f, 150.0f);
+        glVertex2f(180.0f, 150.0f);
     glEnd();
 
     // ===================== TURRET =================================================
+
     // Turret body (angular polygon)
+    // glColor3f(1.0f,0.0f,0.0f);
     glColor3f(0.33f, 0.54f, 0.33f);
     glBegin(GL_POLYGON);
-        glVertex2f(bandLeft+340.f, bandTop+80.f);
-        glVertex2f(bandRight-110.f, bandTop+90.f);
-        glVertex2f(bandRight-40.f,  bandTop+65.f);
-        glVertex2f(bandRight-130.f, bandTop+30.f);
-        glVertex2f(bandLeft+360.f, bandTop+30.f);
-        glVertex2f(bandLeft+310.f, bandTop+55.f);
+        glVertex2f(400.0f, 240.0f);
+        glVertex2f(670.0f, 240.0f);
+        glVertex2f(740.0f, 205.0f);
+        glVertex2f(650.0f, 170.0f);
+        glVertex2f(420.0f, 170.0f);
+        glVertex2f(320.0f, 195.0f);
     glEnd();
-
+//glass
+        glLineWidth(7);
+      glColor3ub(157, 204, 237);
+        glBegin(GL_LINES);
+        glVertex2f(740.0f, 205.0f);
+         glVertex2f(670.0f, 240.0f);
+        glEnd();
     // Turret ring
     glColor3f(0.25f, 0.40f, 0.25f);
-    ring(bandLeft+345.f, bandTop+40.f, 20.f, 34.f, 36);
+    ring(405.0f, 180.0f, 20.0f, 34.0f, 36);
 
     // Optics & small boxes
     glColor3f(0.25f, 0.40f, 0.25f);
     glBegin(GL_QUADS); // left sight box
-        glVertex2f(bandLeft+320.f, bandTop+68.f);
-        glVertex2f(bandLeft+360.f, bandTop+68.f);
-        glVertex2f(bandLeft+360.f, bandTop+88.f);
-        glVertex2f(bandLeft+320.f, bandTop+88.f);
-    glEnd();
-    glColor3f(0.15f, 0.20f, 0.15f); // glass slit
-    glBegin(GL_QUADS);
-        glVertex2f(bandLeft+326.f, bandTop+78.f);
-        glVertex2f(bandLeft+354.f, bandTop+78.f);
-        glVertex2f(bandLeft+354.f, bandTop+83.f);
-        glVertex2f(bandLeft+326.f, bandTop+83.f);
+        glVertex2f(380.0f, 208.0f);
+        glVertex2f(420.0f, 208.0f);
+        glVertex2f(420.0f, 228.0f);
+        glVertex2f(380.0f, 228.0f);
     glEnd();
 
-    // Smoke launchers (two banks)
-    glColor3f(0.30f, 0.45f, 0.30f);
-    for (int k=0; k<3; ++k) {
-        float bx = bandLeft+520.f + k*28.f, by = bandTop+60.f;
-        glBegin(GL_QUADS);
-            glVertex2f(bx,   by);
-            glVertex2f(bx+16,by);
-            glVertex2f(bx+14,by-18);
-            glVertex2f(bx-2, by-18);
-        glEnd();
-        disk(bx+7.f, by-6.f, 5.f, 18);
-    }
-    for (int k=0; k<3; ++k) {
-        float bx = bandLeft+520.f + k*28.f, by = bandTop+32.f;
-        glBegin(GL_QUADS);
-            glVertex2f(bx,   by);
-            glVertex2f(bx+16,by);
-            glVertex2f(bx+14,by-18);
-            glVertex2f(bx-2, by-18);
-        glEnd();
-        disk(bx+7.f, by-6.f, 5.f, 18);
-    }
+
+    glColor3f(0.15f, 0.20f, 0.15f); // glass slit
+    glBegin(GL_QUADS);
+        glVertex2f(386.0f, 218.0f);
+        glVertex2f(414.0f, 218.0f);
+        glVertex2f(414.0f, 223.0f);
+        glVertex2f(386.0f, 223.0f);
+    glEnd();
+
+  // Set color for smoke launchers
+glColor3f(0.30f, 0.45f, 0.30f);
+
+// --- First Bank of Smoke Launchers (Upper Row) ---
+
+// Launcher 1
+glBegin(GL_QUADS);
+    glVertex2f(580.0f, 200.0f);
+    glVertex2f(596.0f, 200.0f);
+    glVertex2f(594.0f, 182.0f);
+    glVertex2f(578.0f, 182.0f);
+glEnd();
+disk(587.0f, 194.0f, 5.0f, 18);
+
+// Launcher 2
+glBegin(GL_QUADS);
+    glVertex2f(608.0f, 200.0f);
+    glVertex2f(624.0f, 200.0f);
+    glVertex2f(622.0f, 182.0f);
+    glVertex2f(606.0f, 182.0f);
+glEnd();
+disk(615.0f, 194.0f, 5.0f, 18);
+
+// Launcher 3
+glBegin(GL_QUADS);
+    glVertex2f(636.0f, 200.0f);
+    glVertex2f(652.0f, 200.0f);
+    glVertex2f(650.0f, 182.0f);
+    glVertex2f(634.0f, 182.0f);
+glEnd();
+disk(643.0f, 194.0f, 5.0f, 18);
+
+// --- Second Bank of Smoke Launchers (Lower Row) ---
+
+// Launcher 1
+glBegin(GL_QUADS);
+    glVertex2f(580.0f, 172.0f);
+    glVertex2f(596.0f, 172.0f);
+    glVertex2f(594.0f, 154.0f);
+    glVertex2f(578.0f, 154.0f);
+glEnd();
+disk(587.0f, 166.0f, 5.0f, 18);
+
+// Launcher 2
+glBegin(GL_QUADS);
+    glVertex2f(608.0f, 172.0f);
+    glVertex2f(624.0f, 172.0f);
+    glVertex2f(622.0f, 154.0f);
+    glVertex2f(606.0f, 154.0f);
+glEnd();
+disk(615.0f, 166.0f, 5.0f, 18);
+
+// Launcher 3
+glBegin(GL_QUADS);
+    glVertex2f(636.0f, 172.0f);
+    glVertex2f(652.0f, 172.0f);
+    glVertex2f(650.0f, 154.0f);
+    glVertex2f(634.0f, 154.0f);
+glEnd();
+disk(643.0f, 166.0f, 5.0f, 18);
 
     // Cupola
     glColor3f(0.36f, 0.56f, 0.36f);
-    disk(bandLeft+410.f, bandTop+96.f, 20.f, 24);
+    disk(470.0f, 236.0f, 20.0f, 24);
     glColor3f(0.22f, 0.33f, 0.22f);
-    ring(bandLeft+410.f, bandTop+96.f, 12.f, 20.f, 24);
+    ring(470.0f, 236.0f, 12.0f, 20.0f, 24);
 
     // MG mount & barrel
     glColor3f(0.18f, 0.22f, 0.18f);
+     //glColor3f(1.0f,0.0f,0.0f);
     glBegin(GL_QUADS); // mount
-        glVertex2f(bandLeft+402.f, bandTop+102.f);
-        glVertex2f(bandLeft+438.f, bandTop+102.f);
-        glVertex2f(bandLeft+438.f, bandTop+110.f);
-        glVertex2f(bandLeft+402.f, bandTop+110.f);
+        glVertex2f(462.0f, 242.0f);
+        glVertex2f(498.0f, 242.0f);
+        glVertex2f(498.0f, 250.0f);
+        glVertex2f(462.0f, 250.0f);
     glEnd();
     glBegin(GL_QUADS); // barrel
-        glVertex2f(bandLeft+438.f, bandTop+106.f);
-        glVertex2f(bandLeft+520.f, bandTop+106.f);
-        glVertex2f(bandLeft+520.f, bandTop+108.f);
-        glVertex2f(bandLeft+438.f, bandTop+108.f);
+        glVertex2f(498.0f, 246.0f);
+        glVertex2f(580.0f, 246.0f);
+        glVertex2f(580.0f, 248.0f);
+        glVertex2f(498.0f, 248.0f);
     glEnd();
 
     // Antennas
     glLineWidth(2);
     glBegin(GL_LINES);
-        glVertex2f(bandLeft+460.f, bandTop+80.f);
-        glVertex2f(bandLeft+460.f, bandTop+190.f);
+        glVertex2f(520.0f, 220.0f);
+        glVertex2f(520.0f, 330.0f);
     glEnd();
     glBegin(GL_LINES);
-        glVertex2f(bandRight-150.f, bandTop+70.f);
-        glVertex2f(bandRight-140.f, bandTop+190.f);
+        glVertex2f(630.0f, 210.0f);
+        glVertex2f(640.0f, 330.0f);
     glEnd();
 
-    // ===================== GUN ====================================================
-    // Main barrel (slight taper)
-    float gunY = bandTop + 55.f;
-    float gunX0 = bandRight - 110.f;
-    float gunX1 = gunX0 + 340.f;
-
-    // rear darker sleeve
-    glColor3f(0.22f, 0.35f, 0.22f);
-    glBegin(GL_QUADS);
-        glVertex2f(gunX0-10.f, gunY-6.f);
-        glVertex2f(gunX0,      gunY-6.f);
-        glVertex2f(gunX0,      gunY+6.f);
-        glVertex2f(gunX0-10.f, gunY+6.f);
-    glEnd();
-
-    // long barrel
-    glColor3f(0.32f, 0.50f, 0.32f);
-    glBegin(GL_QUADS);
-        glVertex2f(gunX0, gunY-6.f);       // near
-        glVertex2f(gunX1, gunY-4.f);       // far (taper)
-        glVertex2f(gunX1, gunY+4.f);
-        glVertex2f(gunX0, gunY+6.f);
-    glEnd();
+// ===================== GUN ====================================================
+// rear darker sleeve
+    glColor3f(0.22f, 0.35f, 0.22f); // Dark green sleeve
+glBegin(GL_QUADS);
+    glVertex2f(660.0f, 185.0f);
+    glVertex2f(670.0f, 185.0f);
+    glVertex2f(670.0f, 205.0f);
+    glVertex2f(660.0f, 205.0f);
+glEnd();
+//long barrel
+   glColor3f(0.32f, 0.50f, 0.32f); // Barrel green
+glBegin(GL_QUADS);
+    glVertex2f(670.0f, 185.0f);   // near
+    glVertex2f(1010.0f, 187.0f);  // far bottom (taper)
+    glVertex2f(1010.0f, 203.0f);  // far top
+    glVertex2f(670.0f, 205.0f);   // near top
+glEnd();
 
     // fume extractor
-    glColor3f(0.28f, 0.44f, 0.28f);
-    glBegin(GL_QUADS);
-        glVertex2f(gunX0+140.f, gunY-10.f);
-        glVertex2f(gunX0+200.f, gunY-10.f);
-        glVertex2f(gunX0+200.f, gunY+10.f);
-        glVertex2f(gunX0+140.f, gunY+10.f);
-    glEnd();
+    glColor3f(0.28f, 0.44f, 0.28f); // Mid green
+glBegin(GL_QUADS);
+    glVertex2f(810.0f, 182.0f);
+    glVertex2f(870.0f, 182.0f);
+    glVertex2f(870.0f, 208.0f);
+    glVertex2f(810.0f, 208.0f);
+glEnd();
 
+glEnable(GL_BLEND);
+glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     // muzzle tip
-    glColor3f(0.10f, 0.12f, 0.12f);
-    glBegin(GL_QUADS);
-        glVertex2f(gunX1,   gunY-6.f);
-        glVertex2f(gunX1+20.f, gunY-6.f);
-        glVertex2f(gunX1+20.f, gunY+6.f);
-        glVertex2f(gunX1,   gunY+6.f);
-    glEnd();
+   // Base muzzle color (dark metal)
+glColor3f(0.10f, 0.12f, 0.12f);
+glBegin(GL_QUADS);
+    glVertex2f(1010.0f, 185.0f);
+    glVertex2f(1030.0f, 185.0f);
+    glVertex2f(1030.0f, 205.0f);
+    glVertex2f(1010.0f, 205.0f);
+glEnd();
+//sperks
+glColor4f(1.0f, 0.8f, 0.2f, 0.6f);
+glPointSize(3.0f);
+glBegin(GL_POINTS);
+    glVertex2f(1042.0f, 192.0f);
+    glVertex2f(1046.0f, 198.0f);
+    glVertex2f(1038.0f, 202.0f);
+glEnd();
+// Firing flash overlay (bright orange-yellow)
+glColor3f(1.0f, 0.6f, 0.0f); // Fiery orange
+glBegin(GL_TRIANGLE_FAN);
+    glVertex2f(1030.0f, 195.0f); // center
+    glVertex2f(1045.0f, 190.0f);
+    glVertex2f(1048.0f, 195.0f);
+    glVertex2f(1045.0f, 200.0f);
+    glVertex2f(1040.0f, 202.0f);
+    glVertex2f(1035.0f, 200.0f);
+    glVertex2f(1032.0f, 195.0f);
+    glVertex2f(1035.0f, 190.0f);
+
+glEnd();
 
     // ===================== LINE ACCENTS ==========================================
     glLineWidth(2);
     glColor3f(0.20f, 0.30f, 0.20f);
+
     // a few seams on turret
     glBegin(GL_LINES);
-        glVertex2f(bandLeft+360.f, bandTop+60.f); glVertex2f(bandRight-110.f, bandTop+60.f);
-        glVertex2f(bandLeft+380.f, bandTop+80.f); glVertex2f(bandLeft+520.f,  bandTop+80.f);
+        glVertex2f(420.0f, 200.0f); glVertex2f(670.0f, 200.0f);
+        glVertex2f(440.0f, 220.0f); glVertex2f(580.0f, 220.0f);
     glEnd();
 
     glPopMatrix();
@@ -807,6 +559,8 @@ void drawTankDetailed(float x, float y, float scale=1.0f, float angleDeg=0.0f) {
     // Keep the animation running even if you didn't set an idle/timer.
     glutPostRedisplay();
 }
+
+
 
 
 
